@@ -1,0 +1,44 @@
+name: OCI Cloud Hunter Batam
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'  # Berjalan otomatis setiap 5 jam
+  workflow_dispatch:       # Tombol "Run workflow" manual kapan saja
+
+jobs:
+  hunt:
+    name: OCI Auto-Hunter
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # Batas aman GitHub Actions
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run OCI Auto-Hunter
+        env:
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_KEY_CONTENT: ${{ secrets.OCI_KEY_CONTENT }}
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          OCI_BOOT_VOLUME_ID: ${{ secrets.OCI_BOOT_VOLUME_ID }}
+          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+          OCI_AD: ${{ secrets.OCI_AD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MAX_RUN_MINUTES: 280
+        run: |
+          python oracle_hunter.py

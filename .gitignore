@@ -1,0 +1,7 @@
+# Jangan pernah commit private key atau cache
+*.pem
+*.key
+oracle_ssh_key
+__pycache__/
+*.log
+.env
