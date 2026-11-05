@@ -62,12 +62,14 @@ OCPUS = float(get_env('OCI_OCPUS', '2.0'))
 MEMORY_IN_GBS = float(get_env('OCI_RAM_GB', '12.0'))
 DISPLAY_NAME = get_env('OCI_DISPLAY_NAME', 'acel-server-arm')
 
-TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '8643508096:AAHTIJ_BMnxE4KEUdfVPQ9gYuJMQb1KT9-o')
+TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = get_env('TELEGRAM_CHAT_ID', '263504863')
 
 MAX_RUN_MINUTES = int(get_env('MAX_RUN_MINUTES', '280')) # ~4.6 jam
 
 def send_telegram(message):
+    if not TELEGRAM_BOT_TOKEN:
+        return
     try:
         url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
         payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message, 'parse_mode': 'Markdown'}
