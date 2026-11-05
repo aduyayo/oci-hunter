@@ -15,11 +15,17 @@ if sys.platform.startswith('win'):
 
 import oci
 
+def get_env(key, default=None):
+    val = os.environ.get(key)
+    if val is not None and str(val).strip():
+        return str(val).strip()
+    return default
+
 # --- KONFIGURASI DARI ENVIRONMENT / DEFAULT ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 KEY_FILE_PATH = os.path.join(BASE_DIR, 'oci_api_key.pem')
-key_content = os.environ.get('OCI_KEY_CONTENT')
+key_content = get_env('OCI_KEY_CONTENT')
 if key_content:
     with open(KEY_FILE_PATH, 'w', encoding='utf-8') as f:
         f.write(key_content.strip() + '\n')
@@ -29,41 +35,37 @@ elif not os.path.exists(KEY_FILE_PATH):
             KEY_FILE_PATH = os.path.join(BASE_DIR, fname)
             break
 
-SSH_PUB_KEY = os.environ.get('SSH_PUBLIC_KEY')
-if not SSH_PUB_KEY:
-    ssh_pub_file = os.path.join(BASE_DIR, 'oracle_ssh_key.pub')
-    if os.path.exists(ssh_pub_file):
-        with open(ssh_pub_file, 'r', encoding='utf-8') as f:
-            SSH_PUB_KEY = f.read().strip()
-    else:
-        SSH_PUB_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICl4t+9N74K0v0q+xG5J5y1f4a4r4J3q5q2w1e4r4t5y oracle-free-key"
+SSH_PUB_KEY = get_env(
+    'SSH_PUBLIC_KEY',
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFZJgQOuweYv/oGuPAWtPuARN2gpxhBaWoPZuRwQGaRL aduy.jabrik@gmail.com'
+)
 
 CONFIG = {
-    'user': os.environ.get('OCI_USER', 'ocid1.user.oc1..aaaaaaaaqfgbmbci47cbruocg6wxvqidxshn6tlm5sn33sqvpajhsrkpep4a'),
-    'fingerprint': os.environ.get('OCI_FINGERPRINT', '0f:7c:ec:97:5a:73:66:88:c2:3f:c7:df:15:35:ec:4e'),
-    'tenancy': os.environ.get('OCI_TENANCY', 'ocid1.tenancy.oc1..aaaaaaaang5wxjyleiulkgmtxxmhbeh3u3sn5vn4cxdqwlqr4mynogfvdnha'),
-    'region': os.environ.get('OCI_REGION', 'ap-batam-1'),
+    'user': get_env('OCI_USER', 'ocid1.user.oc1..aaaaaaaaqfgbmbci47cbruocg6wxvqidxshn6tlm5sn33sqvpajhsrkpep4a'),
+    'fingerprint': get_env('OCI_FINGERPRINT', '0f:7c:ec:97:5a:73:66:88:c2:3f:c7:df:15:35:ec:4e'),
+    'tenancy': get_env('OCI_TENANCY', 'ocid1.tenancy.oc1..aaaaaaaang5wxjyleiulkgmtxxmhbeh3u3sn5vn4cxdqwlqr4mynogfvdnha'),
+    'region': get_env('OCI_REGION', 'ap-batam-1'),
     'key_file': KEY_FILE_PATH
 }
 
-TARGET_BOOT_VOLUME_ID = os.environ.get(
+TARGET_BOOT_VOLUME_ID = get_env(
     'OCI_BOOT_VOLUME_ID',
     'ocid1.bootvolume.oc1.ap-batam-1.abrguljrxi4mladtxwzix2ax65km3irxph64q6v52tkuv5tl4e3eadx6afjq'
 )
-AVAILABILITY_DOMAIN = os.environ.get('OCI_AD', 'WyvS:AP-BATAM-1-AD-1')
-SUBNET_ID = os.environ.get(
+AVAILABILITY_DOMAIN = get_env('OCI_AD', 'WyvS:AP-BATAM-1-AD-1')
+SUBNET_ID = get_env(
     'OCI_SUBNET_ID',
     'ocid1.subnet.oc1.ap-batam-1.aaaaaaaa2czequo4suud5b24gj7csh6kruqrythai7k6yjtsmxlgn5gcxgia'
 )
 
-OCPUS = float(os.environ.get('OCI_OCPUS', '2.0'))
-MEMORY_IN_GBS = float(os.environ.get('OCI_RAM_GB', '12.0'))
-DISPLAY_NAME = os.environ.get('OCI_DISPLAY_NAME', 'acel-server-arm')
+OCPUS = float(get_env('OCI_OCPUS', '2.0'))
+MEMORY_IN_GBS = float(get_env('OCI_RAM_GB', '12.0'))
+DISPLAY_NAME = get_env('OCI_DISPLAY_NAME', 'acel-server-arm')
 
-TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8643508096:AAHTIJ_BMnxE4KEUdfVPQ9gYuJMQb1KT9-o')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '263504863')
+TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '8643508096:AAHTIJ_BMnxE4KEUdfVPQ9gYuJMQb1KT9-o')
+TELEGRAM_CHAT_ID = get_env('TELEGRAM_CHAT_ID', '263504863')
 
-MAX_RUN_MINUTES = int(os.environ.get('MAX_RUN_MINUTES', '280')) # ~4.6 jam
+MAX_RUN_MINUTES = int(get_env('MAX_RUN_MINUTES', '280')) # ~4.6 jam
 
 def send_telegram(message):
     try:
@@ -89,7 +91,8 @@ def main():
 
     if not os.path.exists(KEY_FILE_PATH):
         print(f"[-] ERROR: Private key file tidak ditemukan di {KEY_FILE_PATH}")
-        return
+        print("[-] Pastikan secret OCI_KEY_CONTENT sudah diatur di GitHub Secrets!")
+        sys.exit(1)
 
     oci.config.validate_config(CONFIG)
     compute = oci.core.ComputeClient(CONFIG)
