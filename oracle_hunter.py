@@ -58,9 +58,16 @@ SUBNET_ID = get_env(
     'ocid1.subnet.oc1.ap-batam-1.aaaaaaaa2czequo4suud5b24gj7csh6kruqrythai7k6yjtsmxlgn5gcxgia'
 )
 
-OCPUS = float(get_env('OCI_OCPUS', '2.0'))
-MEMORY_IN_GBS = float(get_env('OCI_RAM_GB', '12.0'))
 DISPLAY_NAME = get_env('OCI_DISPLAY_NAME', 'acel-server-arm')
+
+# Candidate Specs untuk strategi Auto-Fallback (Peluang Tembus Jauh Lebih Cepat!)
+# Di OCI Ampere, spek bisa di-scale up kapan saja tanpa install ulang.
+CANDIDATE_SPECS = [
+    {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
+    {"ocpus": 1.0, "ram": 6.0,  "label": "1 OCPU / 6 GB RAM (Celah Cepat)"},
+    {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
+    {"ocpus": 1.0, "ram": 12.0, "label": "1 OCPU / 12 GB RAM (High-RAM)"},
+]
 
 TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = get_env('TELEGRAM_CHAT_ID', '263504863')
@@ -87,7 +94,7 @@ def main():
     print("=" * 60)
     print("[*] OCI AUTO-HUNTER CLOUD: RECOVERY SERVER ACEL (BATAM)")
     print(f"[*] Region   : {CONFIG['region']}")
-    print(f"[*] Target   : {DISPLAY_NAME} ({OCPUS} OCPU, {MEMORY_IN_GBS} GB RAM)")
+    print(f"[*] Target   : {DISPLAY_NAME} (Multi-Spec Turbo)")
     print(f"[*] Max Run  : {MAX_RUN_MINUTES} menit")
     print("=" * 60)
 
@@ -118,8 +125,8 @@ def main():
         display_name=DISPLAY_NAME,
         shape='VM.Standard.A1.Flex',
         shape_config=oci.core.models.LaunchInstanceShapeConfigDetails(
-            ocpus=OCPUS,
-            memory_in_gbs=MEMORY_IN_GBS
+            ocpus=2.0,
+            memory_in_gbs=12.0
         ),
         source_details=oci.core.models.InstanceSourceViaBootVolumeDetails(
             boot_volume_id=TARGET_BOOT_VOLUME_ID
@@ -137,10 +144,11 @@ def main():
     attempt = 1
 
     send_telegram(
-        f"☁️ *OCI Hunter Berjalan di GitHub Actions Cloud!*\n\n"
+        f"🚀 *OCI Hunter Multi-Spec Turbo Aktif di Cloud!*\n\n"
         f"📍 *Region:* Batam (`ap-batam-1`)\n"
-        f"🖥️ *Target:* `{DISPLAY_NAME}` ({int(OCPUS)} OCPU, {int(MEMORY_IN_GBS)} GB RAM)\n"
-        f"🤖 Bot sekarang berburu 24/7 di Cloud. PC dan HP kamu bebas dimatikan!"
+        f"🖥️ *Target:* `{DISPLAY_NAME}` (Auto-Fallback 2 Core / 1 Core)\n"
+        f"⚡ *Interval:* Gesit ~35-50 detik per tembakan\n"
+        f"🤖 Bot berburu 24/7 di Cloud. Begitu ada celah langsung disambar!"
     )
 
     while True:
@@ -149,8 +157,17 @@ def main():
             print(f"\n[*] Sesi {MAX_RUN_MINUTES} menit selesai. Bersiap untuk giliran jadwal berikutnya...")
             sys.exit(0)
 
+        # Rotasi kandidat spek
+        spec = CANDIDATE_SPECS[(attempt - 1) % len(CANDIDATE_SPECS)]
+        current_ocpus = spec["ocpus"]
+        current_ram = spec["ram"]
+        spec_label = spec["label"]
+
+        launch_details.shape_config.ocpus = current_ocpus
+        launch_details.shape_config.memory_in_gbs = current_ram
+
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{now}] [Percobaan #{attempt}] Mencoba meluncurkan instance...", end="", flush=True)
+        print(f"[{now}] [Percobaan #{attempt}] Mencoba meluncurkan ({spec_label})...", end="", flush=True)
 
         try:
             res = compute.launch_instance(launch_details)
@@ -177,10 +194,11 @@ def main():
                 f"🎉🎉 *ALHAMDULILLAH! SERVER ACEL SUKSES HIDUP DARI CLOUD!* 🎉🎉\n\n"
                 f"🖥️ *Nama:* `{instance.display_name}`\n"
                 f"🌐 *Public IP:* `{public_ip}`\n"
-                f"⚙️ *Spek:* {int(OCPUS)} OCPU, {int(MEMORY_IN_GBS)} GB RAM (GRATIS)\n"
+                f"⚙️ *Spek Berhasil:* {int(current_ocpus)} OCPU, {int(current_ram)} GB RAM (GRATIS Always Free)\n"
                 f"🔑 *SSH Command:*\n"
                 f"`ssh -i oracle_ssh_key ubuntu@{public_ip}`\n\n"
-                f"Harddisk ARM lama berhasil terpasang utuh! Server Acel sudah bangkit! 🚀"
+                f"Harddisk ARM lama berhasil terpasang utuh! Server Acel sudah bangkit! 🚀\n"
+                f"*(Catatan: Spek ini bisa di-scale up ke 2 OCPU / 4 OCPU kapan saja lewat Oracle Console jika kapasitas bertambah)*"
             )
             print("\n" + "=" * 60)
             print(success_msg)
@@ -191,20 +209,20 @@ def main():
         except oci.exceptions.ServiceError as e:
             if "Out of host capacity" in str(e.message) or e.status == 500:
                 print(f" [WAIT] Kapasitas Batam masih penuh ({e.code}).")
-                sleep_sec = random.randint(55, 75)
+                sleep_sec = random.randint(35, 50)
             elif e.status == 429:
                 print(f" [WAIT] Terlalu cepat (Rate Limit 429). Istirahat sejenak...")
-                sleep_sec = random.randint(70, 90)
+                sleep_sec = random.randint(65, 80)
             elif "QuotaExceeded" in str(e.message) or e.status == 400:
                 print(f" [!] Quota Error: {e.message}")
                 send_telegram(f"⚠️ *OCI Hunter Peringatan Quota:* {e.message}")
                 sleep_sec = 60
             else:
                 print(f" [!] Error ({e.status}): {e.message}")
-                sleep_sec = 60
+                sleep_sec = 45
         except Exception as e:
             print(f" [!] Error: {e}")
-            sleep_sec = 60
+            sleep_sec = 45
 
         attempt += 1
         time.sleep(sleep_sec)
