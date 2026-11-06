@@ -2,8 +2,18 @@ name: OCI Cloud Hunter Batam
 
 on:
   schedule:
-    - cron: '0 */5 * * *'  # Berjalan otomatis setiap 5 jam
-  workflow_dispatch:       # Tombol "Run workflow" manual kapan saja
+    - cron: '*/30 * * * *'  # Trigger otomatis berkala
+  workflow_dispatch:       # Tombol manual kapan saja
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+
+# Pastikan hanya 1 hunter yang menembak dalam satu waktu, yang baru otomatis antre & langsung nyambung
+concurrency:
+  group: oci-hunter
+  cancel-in-progress: false
 
 jobs:
   hunt:
