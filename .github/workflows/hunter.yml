@@ -2,7 +2,7 @@ name: OCI Cloud Hunter Batam
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Trigger otomatis berkala
+    - cron: '*/30 * * * *'  # Trigger otomatis cadangan
   workflow_dispatch:       # Tombol manual kapan saja
   push:
     branches:
@@ -49,6 +49,23 @@ jobs:
           OCI_AD: ${{ secrets.OCI_AD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MAX_RUN_MINUTES: 280
+          MAX_RUN_MINUTES: 330
         run: |
           python oracle_hunter.py
+
+      - name: Auto-Trigger Next Session (Zero Downtime)
+        if: success()
+        env:
+          PAT: ${{ secrets.AUTO_TRIGGER_PAT }}
+        run: |
+          FLAG_FILE="${RUNNER_TEMP:-/tmp}/hunter_continue"
+          if [ -f "$FLAG_FILE" ] && [ -n "$PAT" ]; then
+            echo "[*] Sesi selesai dan server belum didapat. Memulai sesi berikutnya seketika (0 detik jeda)..."
+            curl -s -X POST \
+              -H "Authorization: token $PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/actions/workflows/hunter.yml/dispatches \
+              -d '{"ref":"main"}' || true
+          else
+            echo "[*] Server sudah aktif atau tidak ada kelanjutan yang diperlukan."
+          fi

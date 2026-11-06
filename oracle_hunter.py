@@ -72,7 +72,7 @@ CANDIDATE_SPECS = [
 TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = get_env('TELEGRAM_CHAT_ID', '263504863')
 
-MAX_RUN_MINUTES = int(get_env('MAX_RUN_MINUTES', '280')) # ~4.6 jam
+MAX_RUN_MINUTES = int(get_env('MAX_RUN_MINUTES', '330')) # ~5.5 jam
 
 def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN:
@@ -155,6 +155,12 @@ def main():
         elapsed_minutes = (time.time() - start_time) / 60.0
         if elapsed_minutes >= MAX_RUN_MINUTES:
             print(f"\n[*] Sesi {MAX_RUN_MINUTES} menit selesai. Bersiap untuk giliran jadwal berikutnya...")
+            continue_flag_path = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'hunter_continue')
+            try:
+                with open(continue_flag_path, 'w', encoding='utf-8') as f:
+                    f.write('CONTINUE')
+            except Exception as e:
+                print(f"[!] Info flag continue: {e}")
             sys.exit(0)
 
         # Rotasi kandidat spek
