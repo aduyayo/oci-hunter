@@ -60,11 +60,19 @@ SUBNET_ID = get_env(
 
 DISPLAY_NAME = get_env('OCI_DISPLAY_NAME', 'acel-server-arm')
 
+# 3 Rak Server Fisik Terpisah di Data Center Batam
+FAULT_DOMAINS = [
+    'FAULT-DOMAIN-1',
+    'FAULT-DOMAIN-2',
+    'FAULT-DOMAIN-3'
+]
+
 # Candidate Specs untuk strategi Auto-Fallback (Peluang Tembus Jauh Lebih Cepat!)
 # Di OCI Ampere, spek bisa di-scale up kapan saja tanpa install ulang.
 CANDIDATE_SPECS = [
     {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
     {"ocpus": 1.0, "ram": 6.0,  "label": "1 OCPU / 6 GB RAM (Celah Cepat)"},
+    {"ocpus": 1.0, "ram": 4.0,  "label": "1 OCPU / 4 GB RAM (Remah Terkecil)"},
     {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
     {"ocpus": 1.0, "ram": 12.0, "label": "1 OCPU / 12 GB RAM (High-RAM)"},
 ]
@@ -94,7 +102,7 @@ def main():
     print("=" * 60)
     print("[*] OCI AUTO-HUNTER CLOUD: RECOVERY SERVER ACEL (BATAM)")
     print(f"[*] Region   : {CONFIG['region']}")
-    print(f"[*] Target   : {DISPLAY_NAME} (Multi-Spec Turbo)")
+    print(f"[*] Target   : {DISPLAY_NAME} (Multi-Spec & Multi-FaultDomain Turbo)")
     print(f"[*] Max Run  : {MAX_RUN_MINUTES} menit")
     print("=" * 60)
 
@@ -144,10 +152,10 @@ def main():
     attempt = 1
 
     send_telegram(
-        f"🚀 *OCI Hunter Multi-Spec Turbo Aktif di Cloud!*\n\n"
+        f"🚀 *OCI Hunter Multi-Rack Turbo Aktif di Cloud!*\n\n"
         f"📍 *Region:* Batam (`ap-batam-1`)\n"
-        f"🖥️ *Target:* `{DISPLAY_NAME}` (Auto-Fallback 2 Core / 1 Core)\n"
-        f"⚡ *Interval:* Gesit ~35-50 detik per tembakan\n"
+        f"🖥️ *Target:* `{DISPLAY_NAME}`\n"
+        f"⚡ *Strategi:* Scanning 3 Fault Domain Fisik + Multi-Spec Fallback\n"
         f"🤖 Bot berburu 24/7 di Cloud. Begitu ada celah langsung disambar!"
     )
 
@@ -163,17 +171,20 @@ def main():
                 print(f"[!] Info flag continue: {e}")
             sys.exit(0)
 
-        # Rotasi kandidat spek
+        # Rotasi kandidat spek & Fault Domain fisik
         spec = CANDIDATE_SPECS[(attempt - 1) % len(CANDIDATE_SPECS)]
+        fd = FAULT_DOMAINS[(attempt - 1) % len(FAULT_DOMAINS)]
+
         current_ocpus = spec["ocpus"]
         current_ram = spec["ram"]
         spec_label = spec["label"]
 
         launch_details.shape_config.ocpus = current_ocpus
         launch_details.shape_config.memory_in_gbs = current_ram
+        launch_details.fault_domain = fd
 
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{now}] [Percobaan #{attempt}] Mencoba meluncurkan ({spec_label})...", end="", flush=True)
+        print(f"[{now}] [Percobaan #{attempt}] Mencoba ({spec_label}) di {fd}...", end="", flush=True)
 
         try:
             res = compute.launch_instance(launch_details)
@@ -200,7 +211,7 @@ def main():
                 f"🎉🎉 *ALHAMDULILLAH! SERVER ACEL SUKSES HIDUP DARI CLOUD!* 🎉🎉\n\n"
                 f"🖥️ *Nama:* `{instance.display_name}`\n"
                 f"🌐 *Public IP:* `{public_ip}`\n"
-                f"⚙️ *Spek Berhasil:* {int(current_ocpus)} OCPU, {int(current_ram)} GB RAM (GRATIS Always Free)\n"
+                f"⚙️ *Spek Berhasil:* {int(current_ocpus)} OCPU, {int(current_ram)} GB RAM di `{fd}` (GRATIS Always Free)\n"
                 f"🔑 *SSH Command:*\n"
                 f"`ssh -i oracle_ssh_key ubuntu@{public_ip}`\n\n"
                 f"Harddisk ARM lama berhasil terpasang utuh! Server Acel sudah bangkit! 🚀\n"
@@ -215,20 +226,20 @@ def main():
         except oci.exceptions.ServiceError as e:
             if "Out of host capacity" in str(e.message) or e.status == 500:
                 print(f" [WAIT] Kapasitas Batam masih penuh ({e.code}).")
-                sleep_sec = random.randint(35, 50)
+                sleep_sec = random.randint(48, 62)
             elif e.status == 429:
                 print(f" [WAIT] Terlalu cepat (Rate Limit 429). Istirahat sejenak...")
-                sleep_sec = random.randint(65, 80)
+                sleep_sec = random.randint(70, 85)
             elif "QuotaExceeded" in str(e.message) or e.status == 400:
                 print(f" [!] Quota Error: {e.message}")
                 send_telegram(f"⚠️ *OCI Hunter Peringatan Quota:* {e.message}")
                 sleep_sec = 60
             else:
                 print(f" [!] Error ({e.status}): {e.message}")
-                sleep_sec = 45
+                sleep_sec = 50
         except Exception as e:
             print(f" [!] Error: {e}")
-            sleep_sec = 45
+            sleep_sec = 50
 
         attempt += 1
         time.sleep(sleep_sec)
