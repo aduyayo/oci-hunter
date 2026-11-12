@@ -67,14 +67,12 @@ FAULT_DOMAINS = [
     'FAULT-DOMAIN-3'
 ]
 
-# Candidate Specs untuk strategi Auto-Fallback (Peluang Tembus Jauh Lebih Cepat!)
-# Di OCI Ampere, spek bisa di-scale up kapan saja tanpa install ulang.
-CANDIDATE_SPECS = [
+# 3 Prioritas Spek (3 spek x 3 FD = 9 kombinasi, pas di bawah batas API 10 item!)
+# Diurutkan dari spek paling ideal ke remah terkecil.
+RADAR_SPECS = [
     {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
     {"ocpus": 1.0, "ram": 6.0,  "label": "1 OCPU / 6 GB RAM (Celah Cepat)"},
-    {"ocpus": 1.0, "ram": 4.0,  "label": "1 OCPU / 4 GB RAM (Remah Terkecil)"},
-    {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
-    {"ocpus": 1.0, "ram": 12.0, "label": "1 OCPU / 12 GB RAM (High-RAM)"},
+    {"ocpus": 1.0, "ram": 2.0,  "label": "1 OCPU / 2 GB RAM (Remah Mikro)"},
 ]
 
 TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '')
@@ -98,22 +96,84 @@ def send_telegram(message):
     except Exception as e:
         print(f"[!] Gagal kirim Telegram: {e}")
 
+def try_launch(compute, virtual_net, launch_details, fd, ocpus, ram, reason="Sniper"):
+    """Mencoba meluncurkan instance ke Fault Domain dan spek tertentu."""
+    launch_details.shape_config.ocpus = ocpus
+    launch_details.shape_config.memory_in_gbs = ram
+    launch_details.fault_domain = fd
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now}] 🎯 [{reason}] Menembak {fd} ({int(ocpus)} OCPU / {int(ram)} GB RAM)...", end="", flush=True)
+
+    try:
+        res = compute.launch_instance(launch_details)
+        instance = res.data
+        print(" [OK] SUKSES BESAR!!")
+        print(f"Instance ID: {instance.id}")
+        print(f"State: {instance.lifecycle_state}")
+
+        print("[*] Menunggu alokasi Public IP...")
+        public_ip = "Sedang dialokasikan..."
+        for _ in range(12):
+            time.sleep(10)
+            try:
+                vnics = compute.list_vnic_attachments(compartment_id=CONFIG['tenancy'], instance_id=instance.id).data
+                if vnics:
+                    vnic = virtual_net.get_vnic(vnics[0].vnic_id).data
+                    if vnic.public_ip:
+                        public_ip = vnic.public_ip
+                        break
+            except Exception:
+                pass
+
+        success_msg = (
+            f"🎉🎉 *ALHAMDULILLAH! SERVER ACEL SUKSES HIDUP DARI CLOUD!* 🎉🎉\n\n"
+            f"🖥️ *Nama:* `{instance.display_name}`\n"
+            f"🌐 *Public IP:* `{public_ip}`\n"
+            f"⚙️ *Spek Berhasil:* {int(ocpus)} OCPU, {int(ram)} GB RAM di `{fd}` (GRATIS Always Free)\n"
+            f"🔑 *SSH Command:*\n"
+            f"`ssh -i oracle_ssh_key ubuntu@{public_ip}`\n\n"
+            f"Harddisk ARM lama berhasil terpasang utuh! Server Acel sudah bangkit! 🚀\n"
+            f"*(Catatan: Jika spek masih 1 OCPU / 2 GB, kita bisa langsung scale-up ke 2 OCPU / 12 GB kapan saja lewat Oracle Console!)*"
+        )
+        print("\n" + "=" * 60)
+        print(success_msg)
+        print("=" * 60)
+        send_telegram(success_msg)
+        return True, 0
+
+    except oci.exceptions.ServiceError as e:
+        if "Out of host capacity" in str(e.message) or e.status == 500:
+            print(f" [WAIT] Penuh ({e.code}).")
+            return False, 0
+        elif e.status == 429:
+            print(" [WAIT] Rate Limit 429 pada launch_instance.")
+            return False, 429
+        elif "QuotaExceeded" in str(e.message) or e.status == 400:
+            print(f" [!] Quota/Param Error: {e.message}")
+            return False, 400
+        else:
+            print(f" [!] Error ({e.status}): {e.message}")
+            return False, e.status
+    except Exception as e:
+        print(f" [!] Error: {e}")
+        return False, -1
+
 def main():
-    print("=" * 60)
-    print("[*] OCI AUTO-HUNTER CLOUD: RECOVERY SERVER ACEL (BATAM)")
+    print("=" * 65)
+    print("[*] OCI RADAR + SNIPER v3: RECOVERY SERVER ACEL (BATAM)")
     print(f"[*] Region   : {CONFIG['region']}")
-    print(f"[*] Target   : {DISPLAY_NAME} (Multi-Spec & Multi-FaultDomain Turbo)")
+    print(f"[*] Target   : {DISPLAY_NAME} (9-Slot Capacity Radar + Direct Sniper)")
     print(f"[*] Max Run  : {MAX_RUN_MINUTES} menit")
-    print("=" * 60)
+    print("=" * 65)
 
     if not os.path.exists(KEY_FILE_PATH):
         print(f"[-] ERROR: Private key file tidak ditemukan di {KEY_FILE_PATH}")
-        print("[-] Pastikan secret OCI_KEY_CONTENT sudah diatur di GitHub Secrets!")
         sys.exit(1)
 
     oci.config.validate_config(CONFIG)
-    compute = oci.core.ComputeClient(CONFIG)
-    virtual_net = oci.core.VirtualNetworkClient(CONFIG)
+    compute = oci.core.ComputeClient(CONFIG, timeout=(15.0, 20.0))
+    virtual_net = oci.core.VirtualNetworkClient(CONFIG, timeout=(15.0, 20.0))
 
     # 1. Cek apakah server sudah aktif sebelumnya
     print("[*] Memeriksa status instance yang ada di Batam...")
@@ -127,6 +187,7 @@ def main():
     except Exception as e:
         print(f"[!] Info cek instance: {e}")
 
+    # Siapkan detail peluncuran
     launch_details = oci.core.models.LaunchInstanceDetails(
         compartment_id=CONFIG['tenancy'],
         availability_domain=AVAILABILITY_DOMAIN,
@@ -148,21 +209,43 @@ def main():
         }
     )
 
+    # Siapkan detail Capacity Radar (9 Kombinasi sekaligus dalam 1 API call!)
+    shapes_to_check = []
+    for spec in RADAR_SPECS:
+        for fd in FAULT_DOMAINS:
+            shapes_to_check.append(
+                oci.core.models.CreateCapacityReportShapeAvailabilityDetails(
+                    instance_shape='VM.Standard.A1.Flex',
+                    fault_domain=fd,
+                    instance_shape_config=oci.core.models.CapacityReportInstanceShapeConfig(
+                        ocpus=spec["ocpus"],
+                        memory_in_gbs=spec["ram"]
+                    )
+                )
+            )
+
+    radar_details = oci.core.models.CreateComputeCapacityReportDetails(
+        compartment_id=CONFIG['tenancy'],
+        availability_domain=AVAILABILITY_DOMAIN,
+        shape_availabilities=shapes_to_check
+    )
+
     start_time = time.time()
-    attempt = 1
+    scan_count = 1
+    probe_index = 0
 
     send_telegram(
-        f"🚀 *OCI Hunter Multi-Rack Turbo Aktif di Cloud!*\n\n"
+        f"📡 *OCI RADAR + SNIPER v3 Aktif di Cloud!*\n\n"
         f"📍 *Region:* Batam (`ap-batam-1`)\n"
-        f"🖥️ *Target:* `{DISPLAY_NAME}`\n"
-        f"⚡ *Strategi:* Scanning 3 Fault Domain Fisik + Multi-Spec Fallback\n"
-        f"🤖 Bot berburu 24/7 di Cloud. Begitu ada celah langsung disambar!"
+        f"🔍 *Radar:* Memindai 9 slot sekaligus setiap ~8 detik (3 Rak Fisik x 3 Spek)\n"
+        f"🎯 *Target:* `2 Core 12GB` > `1 Core 6GB` > `1 Core 2GB`\n"
+        f"⚡ Kecepatan deteksi naik 60x lipat tanpa terkena 429!"
     )
 
     while True:
         elapsed_minutes = (time.time() - start_time) / 60.0
         if elapsed_minutes >= MAX_RUN_MINUTES:
-            print(f"\n[*] Sesi {MAX_RUN_MINUTES} menit selesai. Bersiap untuk giliran jadwal berikutnya...")
+            print(f"\n[*] Sesi {MAX_RUN_MINUTES} menit selesai ({scan_count - 1} radar scan = {(scan_count - 1) * 9} pengecekan slot).")
             continue_flag_path = os.path.join(os.environ.get('RUNNER_TEMP', '/tmp'), 'hunter_continue')
             try:
                 with open(continue_flag_path, 'w', encoding='utf-8') as f:
@@ -171,78 +254,51 @@ def main():
                 print(f"[!] Info flag continue: {e}")
             sys.exit(0)
 
-        # Rotasi kandidat spek & Fault Domain fisik
-        spec = CANDIDATE_SPECS[(attempt - 1) % len(CANDIDATE_SPECS)]
-        fd = FAULT_DOMAINS[(attempt - 1) % len(FAULT_DOMAINS)]
-
-        current_ocpus = spec["ocpus"]
-        current_ram = spec["ram"]
-        spec_label = spec["label"]
-
-        launch_details.shape_config.ocpus = current_ocpus
-        launch_details.shape_config.memory_in_gbs = current_ram
-        launch_details.fault_domain = fd
-
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{now}] [Percobaan #{attempt}] Mencoba ({spec_label}) di {fd}...", end="", flush=True)
-
+        # Langkah A: Jalankan Radar (cek 9 kombinasi sekaligus tanpa limit!)
+        radar_hit = None
         try:
-            res = compute.launch_instance(launch_details)
-            instance = res.data
-            print(" [OK] SUKSES BESAR!!")
-            print(f"Instance ID: {instance.id}")
-            print(f"State: {instance.lifecycle_state}")
+            rep = compute.create_compute_capacity_report(radar_details).data
+            for sa in rep.shape_availabilities:
+                if sa.availability_status == 'AVAILABLE':
+                    radar_hit = sa
+                    break
 
-            print("[*] Menunggu alokasi Public IP...")
-            public_ip = "Sedang dialokasikan..."
-            for _ in range(12):
-                time.sleep(10)
-                try:
-                    vnics = compute.list_vnic_attachments(compartment_id=CONFIG['tenancy'], instance_id=instance.id).data
-                    if vnics:
-                        vnic = virtual_net.get_vnic(vnics[0].vnic_id).data
-                        if vnic.public_ip:
-                            public_ip = vnic.public_ip
-                            break
-                except Exception:
-                    pass
-
-            success_msg = (
-                f"🎉🎉 *ALHAMDULILLAH! SERVER ACEL SUKSES HIDUP DARI CLOUD!* 🎉🎉\n\n"
-                f"🖥️ *Nama:* `{instance.display_name}`\n"
-                f"🌐 *Public IP:* `{public_ip}`\n"
-                f"⚙️ *Spek Berhasil:* {int(current_ocpus)} OCPU, {int(current_ram)} GB RAM di `{fd}` (GRATIS Always Free)\n"
-                f"🔑 *SSH Command:*\n"
-                f"`ssh -i oracle_ssh_key ubuntu@{public_ip}`\n\n"
-                f"Harddisk ARM lama berhasil terpasang utuh! Server Acel sudah bangkit! 🚀\n"
-                f"*(Catatan: Spek ini bisa di-scale up ke 2 OCPU / 4 OCPU kapan saja lewat Oracle Console jika kapasitas bertambah)*"
-            )
-            print("\n" + "=" * 60)
-            print(success_msg)
-            print("=" * 60)
-            send_telegram(success_msg)
-            sys.exit(0)
+            if radar_hit:
+                hit_ocpus = radar_hit.instance_shape_config.ocpus
+                hit_ram = radar_hit.instance_shape_config.memory_in_gbs
+                hit_fd = radar_hit.fault_domain
+                print(f"\n🚨 [RADAR HIT!!] Slot {hit_fd} ({int(hit_ocpus)} OCPU / {int(hit_ram)} GB) TERSEDIA! Menembak seketika!")
+                ok, _ = try_launch(compute, virtual_net, launch_details, hit_fd, hit_ocpus, hit_ram, reason="RADAR-LOCK")
+                if ok:
+                    sys.exit(0)
+            else:
+                # Print heartbeat log setiap 15 scan (~2 menit sekali) agar log tetap rapi
+                if scan_count == 1 or scan_count % 15 == 0:
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"[{now}] [Radar Scan #{scan_count}] 9/9 kombinasi Batam terpantau penuh. Memantau setiap ~8 detik...")
 
         except oci.exceptions.ServiceError as e:
-            if "Out of host capacity" in str(e.message) or e.status == 500:
-                print(f" [WAIT] Kapasitas Batam masih penuh ({e.code}).")
-                sleep_sec = random.randint(63, 72)
-            elif e.status == 429:
-                print(f" [WAIT] Terlalu cepat (Rate Limit 429). Istirahat sejenak...")
-                sleep_sec = random.randint(75, 90)
-            elif "QuotaExceeded" in str(e.message) or e.status == 400:
-                print(f" [!] Quota Error: {e.message}")
-                send_telegram(f"⚠️ *OCI Hunter Peringatan Quota:* {e.message}")
-                sleep_sec = 60
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if e.status == 429:
+                print(f"[{now}] [Radar Scan #{scan_count}] Rate limit radar 429, istirahat 25 detik...")
+                time.sleep(25)
             else:
-                print(f" [!] Error ({e.status}): {e.message}")
-                sleep_sec = 50
+                print(f"[{now}] [Radar Scan #{scan_count}] Radar error ({e.status}): {e.message}")
         except Exception as e:
-            print(f" [!] Error: {e}")
-            sleep_sec = 50
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{now}] [Radar Scan #{scan_count}] Radar exception: {e}")
 
-        attempt += 1
-        time.sleep(sleep_sec)
+        # Langkah B: Tembakan verifikasi langsung tiap 45 scan (~6 menit sekali)
+        if scan_count % 45 == 0:
+            spec = RADAR_SPECS[probe_index % len(RADAR_SPECS)]
+            fd = FAULT_DOMAINS[probe_index % len(FAULT_DOMAINS)]
+            ok, _ = try_launch(compute, virtual_net, launch_details, fd, spec["ocpus"], spec["ram"], reason="Heartbeat-Probe")
+            if ok:
+                sys.exit(0)
+            probe_index += 1
+
+        scan_count += 1
+        time.sleep(random.randint(7, 10))
 
 if __name__ == '__main__':
     main()
