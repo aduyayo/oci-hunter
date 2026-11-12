@@ -226,10 +226,10 @@ def main():
         except oci.exceptions.ServiceError as e:
             if "Out of host capacity" in str(e.message) or e.status == 500:
                 print(f" [WAIT] Kapasitas Batam masih penuh ({e.code}).")
-                sleep_sec = random.randint(48, 62)
+                sleep_sec = random.randint(63, 72)
             elif e.status == 429:
                 print(f" [WAIT] Terlalu cepat (Rate Limit 429). Istirahat sejenak...")
-                sleep_sec = random.randint(70, 85)
+                sleep_sec = random.randint(75, 90)
             elif "QuotaExceeded" in str(e.message) or e.status == 400:
                 print(f" [!] Quota Error: {e.message}")
                 send_telegram(f"⚠️ *OCI Hunter Peringatan Quota:* {e.message}")
