@@ -72,7 +72,7 @@ FAULT_DOMAINS = [
 RADAR_SPECS = [
     {"ocpus": 2.0, "ram": 12.0, "label": "2 OCPU / 12 GB RAM (Target Utama)"},
     {"ocpus": 1.0, "ram": 6.0,  "label": "1 OCPU / 6 GB RAM (Celah Cepat)"},
-    {"ocpus": 1.0, "ram": 2.0,  "label": "1 OCPU / 2 GB RAM (Remah Mikro)"},
+    {"ocpus": 1.0, "ram": 1.0,  "label": "1 OCPU / 1 GB RAM (Remahan Mikro Terkecil)"},
 ]
 
 TELEGRAM_BOT_TOKEN = get_env('TELEGRAM_BOT_TOKEN', '')
@@ -134,7 +134,7 @@ def try_launch(compute, virtual_net, launch_details, fd, ocpus, ram, reason="Sni
             f"🔑 *SSH Command:*\n"
             f"`ssh -i oracle_ssh_key ubuntu@{public_ip}`\n\n"
             f"Harddisk ARM lama berhasil terpasang utuh! Server Acel sudah bangkit! 🚀\n"
-            f"*(Catatan: Jika spek masih 1 OCPU / 2 GB, kita bisa langsung scale-up ke 2 OCPU / 12 GB kapan saja lewat Oracle Console!)*"
+            f"*(Catatan: Jika spek masih 1 OCPU / 1 GB, kita bisa langsung scale-up ke 2 OCPU / 12 GB kapan saja lewat Oracle Console!)*"
         )
         print("\n" + "=" * 60)
         print(success_msg)
@@ -235,11 +235,11 @@ def main():
     probe_index = 0
 
     send_telegram(
-        f"📡 *OCI RADAR + SNIPER v3 Aktif di Cloud!*\n\n"
+        f"📡 *OCI RADAR + SNIPER v3.1 Aktif di Cloud!*\n\n"
         f"📍 *Region:* Batam (`ap-batam-1`)\n"
-        f"🔍 *Radar:* Memindai 9 slot sekaligus setiap ~8 detik (3 Rak Fisik x 3 Spek)\n"
-        f"🎯 *Target:* `2 Core 12GB` > `1 Core 6GB` > `1 Core 2GB`\n"
-        f"⚡ Kecepatan deteksi naik 60x lipat tanpa terkena 429!"
+        f"🔍 *Radar:* Memindai 9 slot sekaligus setiap ~4 detik (3 Rak Fisik x 3 Spek)\n"
+        f"🎯 *Target:* `2 Core 12GB` > `1 Core 6GB` > `1 Core 1GB (Remahan Terkecil)`\n"
+        f"⚡ Kecepatan deteksi 2x lebih rapat tanpa terkena 429!"
     )
 
     while True:
@@ -272,10 +272,10 @@ def main():
                 if ok:
                     sys.exit(0)
             else:
-                # Print heartbeat log setiap 15 scan (~2 menit sekali) agar log tetap rapi
-                if scan_count == 1 or scan_count % 15 == 0:
+                # Print heartbeat log setiap 20 scan (~1.5 menit sekali) agar log tetap rapi
+                if scan_count == 1 or scan_count % 20 == 0:
                     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"[{now}] [Radar Scan #{scan_count}] 9/9 kombinasi Batam terpantau penuh. Memantau setiap ~8 detik...")
+                    print(f"[{now}] [Radar Scan #{scan_count}] 9/9 kombinasi Batam terpantau penuh. Memantau setiap ~4 detik...")
 
         except oci.exceptions.ServiceError as e:
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -288,8 +288,8 @@ def main():
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] [Radar Scan #{scan_count}] Radar exception: {e}")
 
-        # Langkah B: Tembakan verifikasi langsung tiap 45 scan (~6 menit sekali)
-        if scan_count % 45 == 0:
+        # Langkah B: Tembakan verifikasi langsung tiap 60 scan (~4 menit sekali)
+        if scan_count % 60 == 0:
             spec = RADAR_SPECS[probe_index % len(RADAR_SPECS)]
             fd = FAULT_DOMAINS[probe_index % len(FAULT_DOMAINS)]
             ok, _ = try_launch(compute, virtual_net, launch_details, fd, spec["ocpus"], spec["ram"], reason="Heartbeat-Probe")
@@ -298,7 +298,7 @@ def main():
             probe_index += 1
 
         scan_count += 1
-        time.sleep(random.randint(7, 10))
+        time.sleep(random.randint(3, 5))
 
 if __name__ == '__main__':
     main()
