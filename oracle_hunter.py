@@ -298,7 +298,7 @@ def main():
             probe_index += 1
 
         scan_count += 1
-        time.sleep(random.randint(3, 5))
+        time.sleep(random.randint(2, 3))
 
 if __name__ == '__main__':
     main()
